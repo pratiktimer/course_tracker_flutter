@@ -8,16 +8,33 @@ class CourseProvider with ChangeNotifier {
 
   CourseProvider({required this.db});
 
-  /// Load courses from DB
+  /// Load courses and their videos from DB
   Future<void> loadCoursesFromDb() async {
     courses = await db.getAllCoursesWithVideos();
+
+    // Initialize ValueNotifiers for thumbnails
+    for (var course in courses) {
+      course.thumbnailState.value = course.thumbnailPath;
+
+      for (var video in course.videos) {
+        video.thumbnailState.value = video.thumbnailPath;
+      }
+    }
+
     notifyListeners();
   }
 
-  /// Add a new course
+  /// Add a new course and save to DB
   Future<void> addCourse(CourseModel course) async {
     courses.add(course);
     await db.insertCourseAndVideos(course);
+
+    // Initialize ValueNotifiers
+    course.thumbnailState.value = course.thumbnailPath;
+    for (var video in course.videos) {
+      video.thumbnailState.value = video.thumbnailPath;
+    }
+
     notifyListeners();
   }
 
@@ -31,10 +48,36 @@ class CourseProvider with ChangeNotifier {
       notifyListeners();
     }
   }
+
   /// Clear all courses and videos from memory and DB
   Future<void> clearDatabase() async {
-    await db.deleteAllCoursesAndVideos(); // <-- implement this in your DB class
+    await db.deleteAllCoursesAndVideos();
     courses.clear();
+    notifyListeners();
+  }
+
+  /// Update video thumbnail in memory and DB
+  Future<void> updateVideoThumbnail(String videoId, String? thumb) async {
+    final course = courses.firstWhere(
+          (c) => c.videos.any((v) => v.id == videoId),
+      orElse: () => throw Exception('Video not found'),
+    );
+
+    final video = course.videos.firstWhere((v) => v.id == videoId);
+    video.thumbnailState.value = thumb;
+    video.thumbnailPath = thumb;
+
+    await db.updateVideoThumbnail(videoId, thumb);
+    notifyListeners();
+  }
+
+  /// Update course thumbnail in memory and DB
+  Future<void> updateCourseThumbnail(String courseId, String? thumb) async {
+    final course = courses.firstWhere((c) => c.id == courseId);
+    course.thumbnailState.value = thumb;
+    course.thumbnailPath = thumb;
+
+    await db.updateCourseThumbnail(courseId, thumb);
     notifyListeners();
   }
 }

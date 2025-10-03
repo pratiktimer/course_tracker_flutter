@@ -6,13 +6,14 @@ class VideoModel {
   final String id;
   final String path;
   bool isComplete;
+  String? thumbnailPath;
   ValueNotifier<String?> thumbnailState;
 
   VideoModel({
     required this.id,
     required this.path,
     this.isComplete = false,
-    String? thumbnailPath, // optional initial thumbnail path
+    this.thumbnailPath,
   }) : thumbnailState = ValueNotifier(thumbnailPath);
 }
 
@@ -20,15 +21,20 @@ class VideoModel {
 class CourseModel {
   final String id;
   final String name;
-  final List<VideoModel> videos;
-  final String? thumbnailPath;
-
+  String? thumbnailPath;
   ValueNotifier<String?> thumbnailState;
+  final List<VideoModel> videos;
 
   CourseModel({
     required this.id,
     required this.name,
-    required this.videos,
     this.thumbnailPath,
-  }) : thumbnailState = ValueNotifier(thumbnailPath); // Initialize with saved path
+    required this.videos,
+  }) : thumbnailState = ValueNotifier(thumbnailPath) {
+    // Initialize each video's thumbnailState if needed
+    for (var video in videos) {
+      video.thumbnailState.value = video.thumbnailPath;
+    }
+  }
 }
+

@@ -1,7 +1,7 @@
-// screens.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:video_player/video_player.dart';
 import 'models.dart';
 import 'course_provider.dart';
 import 'utils.dart';
@@ -29,8 +29,9 @@ class CourseListScreen extends StatelessWidget {
                       .map((v) => VideoModel(id: uuid.v4(), path: v.path))
                       .toList();
 
-                  // Generate first video thumbnail for course
+                  // Generate thumbnail for first video to show in course list
                   final firstThumb = await getVideoThumbnail(videoModels.first.path);
+
                   final course = CourseModel(
                     id: uuid.v4(),
                     name: folder.split(Platform.pathSeparator).last,
@@ -39,18 +40,19 @@ class CourseListScreen extends StatelessWidget {
                   );
                   course.thumbnailState.value = firstThumb;
 
-                  // Optionally generate thumbnails for all videos asynchronously
+                  // Generate thumbnails for all videos asynchronously
                   for (var video in videoModels) {
-                    getVideoThumbnail(video.path).then((thumb) {
+                    getVideoThumbnail(video.path).then((thumb) async {
                       video.thumbnailState.value = thumb;
+                      video.thumbnailPath = thumb;
+                      await provider.updateVideoThumbnail(video.id, thumb);
                     });
                   }
 
-                  provider.addCourse(course);
+                  await provider.addCourse(course);
                 }
               }
             },
-
             child: const Icon(Icons.add),
           ),
           const SizedBox(height: 16),
@@ -74,7 +76,8 @@ class CourseListScreen extends StatelessWidget {
               child: InkWell(
                 onTap: () => Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => VideoListScreen(course: course)),
+                  MaterialPageRoute(
+                      builder: (_) => VideoListScreen(course: course)),
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(12.0),
@@ -87,7 +90,8 @@ class CourseListScreen extends StatelessWidget {
                           valueListenable: course.thumbnailState,
                           builder: (_, thumb, __) {
                             if (thumb == null || !File(thumb).existsSync()) {
-                              return const Icon(Icons.video_library, size: 50, color: Colors.grey);
+                              return const Icon(Icons.video_library,
+                                  size: 50, color: Colors.grey);
                             }
                             return Image.file(File(thumb), fit: BoxFit.cover);
                           },
@@ -99,7 +103,8 @@ class CourseListScreen extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(course.name,
-                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                style: const TextStyle(
+                                    fontSize: 16, fontWeight: FontWeight.bold)),
                             const SizedBox(height: 4),
                             Text(
                               "${course.videos.where((v) => v.isComplete).length}/${course.videos.length} completed",
@@ -154,11 +159,86 @@ class VideoListScreen extends StatelessWidget {
                   value: video.isComplete,
                   onChanged: (val) => provider.updateVideo(course.id, video.id, val!),
                 ),
+                onTap: () {
+                  // Open video file
+                  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+                    Process.run('explorer', [video.path]); // Windows example
+                  }
+                },
+                // onTap: () {
+                //   Navigator.push(
+                //     context,
+                //     MaterialPageRoute(
+                //       builder: (_) => VideoPlayerScreen(videoPath: video.path),
+                //     ),
+                //   );
+                // },
               ),
             ),
           );
         },
       ),
+    );
+  }
+}
+
+/// Full-screen video player page
+class VideoPlayerScreen extends StatefulWidget {
+  final String videoPath;
+  const VideoPlayerScreen({required this.videoPath, super.key});
+
+  @override
+  State<VideoPlayerScreen> createState() => _VideoPlayerScreenState();
+}
+
+class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
+  late VideoPlayerController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.file(File(widget.videoPath))
+      ..initialize().then((_) {
+        setState(() {}); // Rebuild when ready
+        _controller.play(); // Auto-play
+      });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(title: const Text("Video Player")),
+      body: Center(
+        child: _controller.value.isInitialized
+            ? AspectRatio(
+          aspectRatio: _controller.value.aspectRatio,
+          child: VideoPlayer(_controller),
+        )
+            : const CircularProgressIndicator(),
+      ),
+      floatingActionButton: _controller.value.isInitialized
+          ? FloatingActionButton(
+        onPressed: () {
+          setState(() {
+            _controller.value.isPlaying
+                ? _controller.pause()
+                : _controller.play();
+          });
+        },
+        child: Icon(
+          _controller.value.isPlaying
+              ? Icons.pause
+              : Icons.play_arrow,
+        ),
+      )
+          : null,
     );
   }
 }
