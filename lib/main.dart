@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:playground/theme_provider.dart';
-import 'app_theme.dart';
+import 'course_page.dart';
 import 'database.dart';
 import 'course_provider.dart';
-import 'screens.dart';
 import 'package:provider/provider.dart';
 
 void main() async {

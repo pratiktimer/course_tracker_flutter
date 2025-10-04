@@ -30,14 +30,11 @@ Future<String?> getVideoThumbnail(String videoPath) async {
       return null;
     }
 
-    final fileName = videoFile.uri.pathSegments.last;
     final thumbPath = '${Directory.systemTemp.path}\\thumb_${uuid.v4()}.png';
 
     final ffmpegPath = r'C:\Users\pbana\Downloads\ffmpeg-master-latest-win64-gpl-shared\ffmpeg-master-latest-win64-gpl-shared\bin\ffmpeg.exe'; // Update this
 
-    print('Running FFmpeg...');
-    print('Input: $videoPath');
-    print('Output: $thumbPath');
+
 
     final result = await Process.run(ffmpegPath, [
       '-i',
@@ -48,20 +45,13 @@ Future<String?> getVideoThumbnail(String videoPath) async {
       '1',
       thumbPath
     ]);
-
-    print('FFmpeg stdout: ${result.stdout}');
-    print('FFmpeg stderr: ${result.stderr}');
-    print('Exit code: ${result.exitCode}');
-
     if (result.exitCode == 0 && File(thumbPath).existsSync()) {
-      print('Thumbnail generated: $thumbPath');
       return thumbPath;
     } else {
-      print('FFmpeg failed');
       return null;
     }
   } catch (e) {
-    print('Error generating thumbnail: $e');
+
     return null;
   }
 }
