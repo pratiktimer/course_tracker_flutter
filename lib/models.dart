@@ -5,17 +5,25 @@ import 'package:flutter/foundation.dart';
 class VideoModel {
   final String id;
   final String path;
-  bool isComplete;
   String? thumbnailPath;
+
+  // Use ValueNotifier for reactive UI
   ValueNotifier<String?> thumbnailState;
+  ValueNotifier<bool> isCompleteNotifier;
+
+  // Optional getter/setter for convenience
+  bool get isComplete => isCompleteNotifier.value;
+  set isComplete(bool value) => isCompleteNotifier.value = value;
 
   VideoModel({
     required this.id,
     required this.path,
-    this.isComplete = false,
+    bool isComplete = false,
     this.thumbnailPath,
-  }) : thumbnailState = ValueNotifier(thumbnailPath);
+  })  : thumbnailState = ValueNotifier(thumbnailPath),
+        isCompleteNotifier = ValueNotifier(isComplete);
 }
+
 
 
 class CourseModel {

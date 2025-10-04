@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
-import 'package:video_thumbnail/video_thumbnail.dart';
 import 'models.dart';
 import 'package:uuid/uuid.dart';
 
@@ -32,7 +31,8 @@ Future<String?> getVideoThumbnail(String videoPath) async {
     }
 
     final fileName = videoFile.uri.pathSegments.last;
-    final thumbPath = '${Directory.systemTemp.path}\\thumb_$fileName.png';
+    final thumbPath = '${Directory.systemTemp.path}\\thumb_${uuid.v4()}.png';
+
     final ffmpegPath = r'C:\Users\pbana\Downloads\ffmpeg-master-latest-win64-gpl-shared\ffmpeg-master-latest-win64-gpl-shared\bin\ffmpeg.exe'; // Update this
 
     print('Running FFmpeg...');

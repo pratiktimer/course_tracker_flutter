@@ -57,17 +57,27 @@ class CourseProvider with ChangeNotifier {
   }
 
   /// Update video thumbnail in memory and DB
-  Future<void> updateVideoThumbnail(String videoId, String? thumb) async {
+  Future<void> updateVideoThumbnail(String courseId, String videoId, String? thumb) async {
+    // Find the course by ID
     final course = courses.firstWhere(
-          (c) => c.videos.any((v) => v.id == videoId),
-      orElse: () => throw Exception('Video not found'),
+          (c) => c.id == courseId,
+      orElse: () => throw Exception('Course not found'),
     );
 
-    final video = course.videos.firstWhere((v) => v.id == videoId);
+    // Find the video within that course
+    final video = course.videos.firstWhere(
+          (v) => v.id == videoId,
+      orElse: () => throw Exception('Video not found in this course'),
+    );
+
+    // Update in memory
     video.thumbnailState.value = thumb;
     video.thumbnailPath = thumb;
 
-    await db.updateVideoThumbnail(videoId, thumb);
+    // Update in database
+    await db.updateVideoThumbnail(courseId, videoId, thumb);
+
+    // Notify listeners for UI update
     notifyListeners();
   }
 

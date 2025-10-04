@@ -82,9 +82,26 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// Fetch all courses with videos
+  /// Fetch all courses with videos
   Future<List<CourseModel>> getAllCoursesWithVideos() async {
+    // Fetch all courses
     final coursesList = await select(courseEntity).get();
-    List<CourseModel> result = [];
+
+    // Fetch all videos in one go
+    final videosList = await select(videoEntity).get();
+
+    // Group videos by courseId
+    final videosByCourse = <String, List<VideoModel>>{};
+    for (final v in videosList) {
+      videosByCourse.putIfAbsent(v.courseId, () => []).add(
+        VideoModel(
+          id: v.id,
+          path: v.path,
+          isComplete: v.isComplete,
+          thumbnailPath: v.thumbnailPath,
+        ),
+      );
+    }
 
     // Natural sort function
     int naturalCompare(String a, String b) {
@@ -109,33 +126,32 @@ class AppDatabase extends _$AppDatabase {
           if (cmp != 0) return cmp;
         }
       }
-
       return aParts.length.compareTo(bParts.length);
     }
 
-    for (var c in coursesList) {
-      final videosList = await (select(videoEntity)
-        ..where((tbl) => tbl.courseId.equals(c.id)))
-          .get();
+    String _filenameFromPath(String path) {
+      try {
+        final uri = Uri.parse(path);
+        if (uri.pathSegments.isNotEmpty) return uri.pathSegments.last;
+      } catch (_) {}
+      return path.split(Platform.pathSeparator).last;
+    }
 
-      // Sort videos naturally by filename using Uri
-      videosList.sort((a, b) => naturalCompare(
-        Uri.file(a.path).pathSegments.last,
-        Uri.file(b.path).pathSegments.last,
-      ));
+    // Build courses with their videos
+    final result = coursesList.map((c) {
+      final videos = videosByCourse[c.id] ?? [];
 
-      result.add(CourseModel(
+      // Sort videos by filename
+      videos.sort((a, b) =>
+          naturalCompare(_filenameFromPath(a.path), _filenameFromPath(b.path)));
+
+      return CourseModel(
         id: c.id,
         name: c.name,
         thumbnailPath: c.thumbnailPath,
-        videos: videosList.map((v) => VideoModel(
-          id: v.id,
-          path: v.path,
-          isComplete: v.isComplete,
-          thumbnailPath: v.thumbnailPath,
-        )).toList(),
-      ));
-    }
+        videos: videos,
+      );
+    }).toList();
 
     // Sort courses naturally by name
     result.sort((a, b) => naturalCompare(a.name, b.name));
@@ -152,11 +168,12 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// Update video thumbnail
-  Future<void> updateVideoThumbnail(String videoId, String? thumb) async {
+  Future<void> updateVideoThumbnail(String courseId, String videoId, String? thumb) async {
     await (update(videoEntity)
-      ..where((tbl) => tbl.id.equals(videoId)))
+      ..where((tbl) => tbl.id.equals(videoId) & tbl.courseId.equals(courseId)))
         .write(VideoEntityCompanion(thumbnailPath: Value(thumb)));
   }
+
   Future<void> updateCourseThumbnail(String courseId, String? thumb) async {
     await (update(courseEntity)..where((tbl) => tbl.id.equals(courseId))).write(
       CourseEntityCompanion(thumbnailPath: Value(thumb)),
