@@ -1,15 +1,18 @@
+import 'dart:async';
 import 'dart:io';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart' show Video, VideoController;
+import 'package:media_kit_video/media_kit_video.dart'
+    show Video, VideoController;
 
 import 'course_provider.dart';
 import 'models.dart';
+
 class VideoPlayerScreen extends StatefulWidget {
   final CourseModel course;
   final int initialIndex;
-  final CourseProvider provider; // your provider
+  final CourseProvider provider;
 
   const VideoPlayerScreen({
     required this.course,
@@ -22,36 +25,58 @@ class VideoPlayerScreen extends StatefulWidget {
   State<VideoPlayerScreen> createState() => _VideoPlayerScreenState();
 }
 
-class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
+class _VideoPlayerScreenState extends State<VideoPlayerScreen>
+    with SingleTickerProviderStateMixin {
   late Player _player;
   late VideoController _controller;
   late int _currentIndex;
 
   bool _isFullscreen = false;
   double _playbackSpeed = 1.0;
+  bool _completedOnce = false;
+
+  // Animated icons
+  bool _showRewindIcon = false;
+  bool _showForwardIcon = false;
+  bool _showPlayPauseIcon = false;
+  IconData _playPauseIcon = Icons.play_arrow;
+
+  late AnimationController _animController;
+  late Animation<double> _fadeAnim;
+  late Animation<Offset> _slideAnim;
+
+  // 🔥 For hiding UI when mouse inactive
+  bool _showUI = true;
+  Timer? _hideUiTimer;
 
   @override
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
     _initPlayer();
+
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+
+    _fadeAnim = Tween<double>(begin: 1.0, end: 0.0).animate(_animController);
+    _slideAnim = Tween<Offset>(
+      begin: const Offset(0, 0),
+      end: const Offset(0, -0.5),
+    ).animate(_animController);
   }
 
   void _initPlayer() {
     _player = Player();
     _controller = VideoController(_player);
-
     _openVideo(widget.course.videos[_currentIndex].path);
 
-    // ✅ Listen for completion
     _player.streams.completed.listen((completed) {
-      if (completed) {
+      if (completed && !_completedOnce) {
+        _completedOnce = true;
         final currentVideo = widget.course.videos[_currentIndex];
-
-        // ✅ Mark as complete
         widget.provider.updateVideo(widget.course.id, currentVideo.id, true);
-
-        // ✅ Auto play next video if exists
         if (_currentIndex < widget.course.videos.length - 1) {
           _playNext();
         }
@@ -60,6 +85,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   }
 
   void _openVideo(String path) {
+    _completedOnce = false;
     _player.open(Media(path));
   }
 
@@ -86,9 +112,72 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     _player.play();
   }
 
+  void _toggleFullscreen() {
+    setState(() {
+      _isFullscreen = !_isFullscreen;
+      _showUI = true; // always show controls initially
+    });
+
+    if (_isFullscreen) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+      _startAutoHideTimer();
+    } else {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+      _hideUiTimer?.cancel();
+    }
+  }
+
+  void _showIcon(bool isForward) {
+    if (isForward) {
+      setState(() => _showForwardIcon = true);
+    } else {
+      setState(() => _showRewindIcon = true);
+    }
+
+    _animController.reset();
+    _animController.forward().then((_) {
+      setState(() {
+        _showForwardIcon = false;
+        _showRewindIcon = false;
+      });
+    });
+  }
+
+  void _showPlayPause() {
+    setState(() {
+      _showPlayPauseIcon = true;
+      _playPauseIcon = _player.state.playing ? Icons.pause : Icons.play_arrow;
+    });
+
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) setState(() => _showPlayPauseIcon = false);
+    });
+  }
+
+  // 🔥 Hide UI logic
+  void _onMouseMove() {
+    if (!_isFullscreen) return;
+    setState(() => _showUI = true);
+    _startAutoHideTimer();
+  }
+
+  void _startAutoHideTimer() {
+    _hideUiTimer?.cancel();
+    _hideUiTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _showUI = false);
+    });
+  }
+
   @override
   void dispose() {
+    _hideUiTimer?.cancel();
     _player.dispose();
+    _animController.dispose();
     super.dispose();
   }
 
@@ -96,42 +185,153 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   Widget build(BuildContext context) {
     final currentVideo = widget.course.videos[_currentIndex];
     final fileName = currentVideo.path.split(Platform.pathSeparator).last;
+
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: _isFullscreen ? null : AppBar(title: Text(fileName)),
-      body: Center(
-        child: Stack(
-          children: [
-            Center(
-              child: Video(
-                controller: _controller,
-                fit: BoxFit.cover,
-              ),
-            ),
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: VideoControls(
-                player: _player,
-                videoTitle: fileName,
-                playbackSpeed: _playbackSpeed,
-                onSpeedChange: (speed) {
-                  _playbackSpeed = speed;
-                  _player.setRate(speed);
-                  setState(() {});
+      appBar: _isFullscreen
+          ? null
+          : AppBar(title: Text(fileName), backgroundColor: Colors.black),
+      body: MouseRegion(
+        onHover: (_) => _onMouseMove(),
+        child: Center(
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  if (_player.state.playing) {
+                    _player.pause();
+                  } else {
+                    _player.play();
+                  }
+                  _showPlayPause();
                 },
-                onFullscreenToggle: () {
-                  setState(() => _isFullscreen = !_isFullscreen);
+                onDoubleTapDown: (details) {
+                  final width = MediaQuery.of(context).size.width;
+                  final dx = details.localPosition.dx;
+
+                  if (dx < width / 2) {
+                    final newPos =
+                        _player.state.position - const Duration(seconds: 10);
+                    _player.seek(
+                      newPos >= Duration.zero ? newPos : Duration.zero,
+                    );
+                    _showIcon(false);
+                  } else {
+                    final newPos =
+                        _player.state.position + const Duration(seconds: 10);
+                    _player.seek(
+                      newPos <= _player.state.duration
+                          ? newPos
+                          : _player.state.duration,
+                    );
+                    _showIcon(true);
+                  }
                 },
-                onPrevious: _playPrevious,
-                onNext: _playNext,
-                onReplay: _replay,
-                hasPrevious: _currentIndex > 0,
-                hasNext: _currentIndex < widget.course.videos.length - 1,
+                child: Video(
+                  controller: _controller,
+                  fit: BoxFit.cover,
+                  controls: null,
+                ),
               ),
-            ),
-          ],
+
+              // 🔹 Animated Overlays
+              if (_showRewindIcon)
+                SlideTransition(
+                  position: _slideAnim,
+                  child: FadeTransition(
+                    opacity: _fadeAnim,
+                    child: const Icon(
+                      Icons.fast_rewind,
+                      size: 80,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ),
+              if (_showForwardIcon)
+                SlideTransition(
+                  position: _slideAnim,
+                  child: FadeTransition(
+                    opacity: _fadeAnim,
+                    child: const Icon(
+                      Icons.fast_forward,
+                      size: 80,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ),
+              if (_showPlayPauseIcon)
+                AnimatedOpacity(
+                  opacity: _showPlayPauseIcon ? 1 : 0,
+                  duration: const Duration(milliseconds: 300),
+                  child: Icon(_playPauseIcon, size: 80, color: Colors.white70),
+                ),
+
+              // 🔹 UI shown only when not fullscreen OR when visible
+              AnimatedOpacity(
+                opacity: (!_isFullscreen || _showUI) ? 1 : 0,
+                duration: const Duration(milliseconds: 300),
+                child: Visibility(
+                  visible: !_isFullscreen || _showUI,
+                  child: Stack(
+                    children: [
+                      // Completion Badge
+                      Positioned(
+                        top: 10,
+                        right: 10,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: currentVideo.isComplete
+                                ? Colors.green
+                                : Colors.orange,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            currentVideo.isComplete
+                                ? "Completed"
+                                : "In Progress",
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      // Custom Controls
+                      Positioned(
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        child: VideoControls(
+                          player: _player,
+                          videoTitle: fileName,
+                          playbackSpeed: _playbackSpeed,
+                          onSpeedChange: (speed) {
+                            _playbackSpeed = speed;
+                            _player.setRate(speed);
+                            setState(() {});
+                          },
+                          onFullscreenToggle: _toggleFullscreen,
+                          onPrevious: _playPrevious,
+                          onNext: _playNext,
+                          onReplay: _replay,
+                          hasPrevious: _currentIndex > 0,
+                          hasNext:
+                              _currentIndex < widget.course.videos.length - 1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -171,18 +371,29 @@ class VideoControls extends StatefulWidget {
 class _VideoControlsState extends State<VideoControls> {
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
+  StreamSubscription<Duration>? _positionSub;
+  StreamSubscription<Duration>? _durationSub;
 
   @override
   void initState() {
     super.initState();
 
-    widget.player.streams.position.listen((pos) {
+    _positionSub = widget.player.streams.position.listen((pos) {
+      if (!mounted) return; // ✅ ensure widget still exists
       setState(() => _position = pos);
     });
 
-    widget.player.streams.duration.listen((dur) {
+    _durationSub = widget.player.streams.duration.listen((dur) {
+      if (!mounted) return; // ✅ ensure widget still exists
       setState(() => _duration = dur);
     });
+  }
+
+  @override
+  void dispose() {
+    _positionSub?.cancel(); // ✅ clean up
+    _durationSub?.cancel();
+    super.dispose();
   }
 
   @override
@@ -197,40 +408,65 @@ class _VideoControlsState extends State<VideoControls> {
             alignment: Alignment.centerLeft,
             child: Text(
               widget.videoTitle,
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
           const SizedBox(height: 8),
           Row(
             children: [
-              Text(_formatDuration(_position), style: const TextStyle(color: Colors.white70)),
+              Text(
+                _formatDuration(_position),
+                style: const TextStyle(color: Colors.white70),
+              ),
               Expanded(
-                child: Slider(
-                  value: _position.inMilliseconds.toDouble().clamp(0, _duration.inMilliseconds.toDouble()),
-                  min: 0,
-                  max: _duration.inMilliseconds.toDouble(),
-                  onChanged: (value) {
-                    widget.player.seek(Duration(milliseconds: value.toInt()));
-                  },
-                  activeColor: Colors.green,
-                  inactiveColor: Colors.white30,
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 3,
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 6,
+                    ),
+                    overlayShape: const RoundSliderOverlayShape(
+                      overlayRadius: 12,
+                    ),
+                    activeTrackColor: Colors.green,
+                    inactiveTrackColor: Colors.white30,
+                  ),
+                  child: Slider(
+                    value: _position.inMilliseconds
+                        .clamp(0, _duration.inMilliseconds)
+                        .toDouble(),
+                    min: 0,
+                    max: _duration.inMilliseconds.toDouble(),
+                    onChanged: (value) {
+                      widget.player.seek(Duration(milliseconds: value.toInt()));
+                    },
+                  ),
                 ),
               ),
-              Text(_formatDuration(_duration), style: const TextStyle(color: Colors.white70)),
+              Text(
+                _formatDuration(_duration),
+                style: const TextStyle(color: Colors.white70),
+              ),
             ],
           ),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               IconButton(
-                icon: Icon(widget.player.state.playing ? Icons.pause : Icons.play_arrow, color: Colors.white),
+                icon: Icon(
+                  widget.player.state.playing ? Icons.pause : Icons.play_arrow,
+                  color: Colors.white,
+                ),
                 onPressed: () {
                   if (widget.player.state.playing) {
                     widget.player.pause();
                   } else {
                     widget.player.play();
                   }
-                  setState(() {});
+                  if (mounted) setState(() {});
                 },
               ),
               IconButton(
@@ -250,7 +486,9 @@ class _VideoControlsState extends State<VideoControls> {
                 dropdownColor: Colors.black87,
                 style: const TextStyle(color: Colors.white),
                 items: [0.5, 1.0, 1.5, 2.0]
-                    .map((e) => DropdownMenuItem(value: e, child: Text("${e}x")))
+                    .map(
+                      (e) => DropdownMenuItem(value: e, child: Text('${e}x')),
+                    )
                     .toList(),
                 onChanged: (val) {
                   if (val != null) widget.onSpeedChange(val);
