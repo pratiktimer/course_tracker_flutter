@@ -17,9 +17,8 @@ Future<List<VideoModel>> fetchAllVideos(String folderPath) async {
       .where((f) => f.path.toLowerCase().endsWith('.mp4'))
       .toList();
 
-  // Natural sort function
   int naturalCompare(String a, String b) {
-    final regex = RegExp(r'(\d+)|(\D+)');
+    final regex = RegExp(r'(\d+)|(\D+)'); // numeric or non-numeric
     final aParts = regex.allMatches(a).map((m) => m.group(0)!).toList();
     final bParts = regex.allMatches(b).map((m) => m.group(0)!).toList();
     final len = aParts.length < bParts.length ? aParts.length : bParts.length;
@@ -28,21 +27,22 @@ Future<List<VideoModel>> fetchAllVideos(String folderPath) async {
       final aPart = aParts[i];
       final bPart = bParts[i];
 
-      final aNum = int.tryParse(aPart);
-      final bNum = int.tryParse(bPart);
+      final aNum = int.tryParse(aPart.padLeft(10, '0')); // pad zeros
+      final bNum = int.tryParse(bPart.padLeft(10, '0')); // pad zeros
 
       if (aNum != null && bNum != null) {
         if (aNum != bNum) return aNum.compareTo(bNum);
-      } else {
+      } else if (aNum == null && bNum == null) {
         final cmp = aPart.compareTo(bPart);
         if (cmp != 0) return cmp;
+      } else {
+        return aNum != null ? -1 : 1;
       }
     }
 
     return aParts.length.compareTo(bParts.length);
   }
 
-  // Apply natural sort on file names (not full paths)
   files.sort(
     (a, b) => naturalCompare(
       a.path.split(Platform.pathSeparator).last.toLowerCase(),

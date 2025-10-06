@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -45,10 +44,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   late Animation<double> _fadeAnim;
   late Animation<Offset> _slideAnim;
 
-  // 🔥 For hiding UI when mouse inactive
-  bool _showUI = true;
-  Timer? _hideUiTimer;
-
   @override
   void initState() {
     super.initState();
@@ -70,6 +65,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   void _initPlayer() {
     _player = Player();
     _controller = VideoController(_player);
+
     _openVideo(widget.course.videos[_currentIndex].path);
 
     _player.streams.completed.listen((completed) {
@@ -113,30 +109,28 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   }
 
   void _toggleFullscreen() {
-    setState(() {
-      _isFullscreen = !_isFullscreen;
-      _showUI = true; // always show controls initially
-    });
-
+    setState(() => _isFullscreen = !_isFullscreen);
     if (_isFullscreen) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
       SystemChrome.setPreferredOrientations([
         DeviceOrientation.landscapeLeft,
         DeviceOrientation.landscapeRight,
       ]);
-      _startAutoHideTimer();
     } else {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-      _hideUiTimer?.cancel();
     }
   }
 
   void _showIcon(bool isForward) {
     if (isForward) {
-      setState(() => _showForwardIcon = true);
+      setState(() {
+        _showForwardIcon = true;
+      });
     } else {
-      setState(() => _showRewindIcon = true);
+      setState(() {
+        _showRewindIcon = true;
+      });
     }
 
     _animController.reset();
@@ -155,27 +149,16 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     });
 
     Future.delayed(const Duration(milliseconds: 500), () {
-      if (mounted) setState(() => _showPlayPauseIcon = false);
-    });
-  }
-
-  // 🔥 Hide UI logic
-  void _onMouseMove() {
-    if (!_isFullscreen) return;
-    setState(() => _showUI = true);
-    _startAutoHideTimer();
-  }
-
-  void _startAutoHideTimer() {
-    _hideUiTimer?.cancel();
-    _hideUiTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted) setState(() => _showUI = false);
+      if (mounted) {
+        setState(() {
+          _showPlayPauseIcon = false;
+        });
+      }
     });
   }
 
   @override
   void dispose() {
-    _hideUiTimer?.cancel();
     _player.dispose();
     _animController.dispose();
     super.dispose();
@@ -188,150 +171,126 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: _isFullscreen
-          ? null
-          : AppBar(title: Text(fileName), backgroundColor: Colors.black),
-      body: MouseRegion(
-        onHover: (_) => _onMouseMove(),
-        child: Center(
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  if (_player.state.playing) {
-                    _player.pause();
-                  } else {
-                    _player.play();
-                  }
-                  _showPlayPause();
-                },
-                onDoubleTapDown: (details) {
-                  final width = MediaQuery.of(context).size.width;
-                  final dx = details.localPosition.dx;
+      appBar: _isFullscreen ? null : AppBar(title: Text(fileName)),
+      body: Center(
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                if (_player.state.playing) {
+                  _player.pause();
+                } else {
+                  _player.play();
+                }
+                _showPlayPause();
+              },
+              onDoubleTapDown: (details) {
+                final width = MediaQuery.of(context).size.width;
+                final dx = details.localPosition.dx;
 
-                  if (dx < width / 2) {
-                    final newPos =
-                        _player.state.position - const Duration(seconds: 10);
-                    _player.seek(
-                      newPos >= Duration.zero ? newPos : Duration.zero,
-                    );
-                    _showIcon(false);
-                  } else {
-                    final newPos =
-                        _player.state.position + const Duration(seconds: 10);
-                    _player.seek(
-                      newPos <= _player.state.duration
-                          ? newPos
-                          : _player.state.duration,
-                    );
-                    _showIcon(true);
-                  }
-                },
-                child: Video(
-                  controller: _controller,
-                  fit: BoxFit.cover,
-                  controls: null,
+                if (dx < width / 2) {
+                  final newPos =
+                      _player.state.position - const Duration(seconds: 10);
+                  _player.seek(
+                    newPos >= Duration.zero ? newPos : Duration.zero,
+                  );
+                  _showIcon(false);
+                } else {
+                  final newPos =
+                      _player.state.position + const Duration(seconds: 10);
+                  _player.seek(
+                    newPos <= _player.state.duration
+                        ? newPos
+                        : _player.state.duration,
+                  );
+                  _showIcon(true);
+                }
+              },
+              child: Video(
+                controller: _controller,
+                fit: BoxFit.cover,
+                controls: null,
+              ),
+            ),
+
+            // Animated Rewind
+            if (_showRewindIcon)
+              SlideTransition(
+                position: _slideAnim,
+                child: FadeTransition(
+                  opacity: _fadeAnim,
+                  child: const Icon(
+                    Icons.fast_rewind,
+                    size: 80,
+                    color: Colors.white70,
+                  ),
                 ),
               ),
 
-              // 🔹 Animated Overlays
-              if (_showRewindIcon)
-                SlideTransition(
-                  position: _slideAnim,
-                  child: FadeTransition(
-                    opacity: _fadeAnim,
-                    child: const Icon(
-                      Icons.fast_rewind,
-                      size: 80,
-                      color: Colors.white70,
-                    ),
+            // Animated Forward
+            if (_showForwardIcon)
+              SlideTransition(
+                position: _slideAnim,
+                child: FadeTransition(
+                  opacity: _fadeAnim,
+                  child: const Icon(
+                    Icons.fast_forward,
+                    size: 80,
+                    color: Colors.white70,
                   ),
                 ),
-              if (_showForwardIcon)
-                SlideTransition(
-                  position: _slideAnim,
-                  child: FadeTransition(
-                    opacity: _fadeAnim,
-                    child: const Icon(
-                      Icons.fast_forward,
-                      size: 80,
-                      color: Colors.white70,
-                    ),
-                  ),
-                ),
-              if (_showPlayPauseIcon)
-                AnimatedOpacity(
-                  opacity: _showPlayPauseIcon ? 1 : 0,
-                  duration: const Duration(milliseconds: 300),
-                  child: Icon(_playPauseIcon, size: 80, color: Colors.white70),
-                ),
+              ),
 
-              // 🔹 UI shown only when not fullscreen OR when visible
+            // Animated Play/Pause
+            if (_showPlayPauseIcon)
               AnimatedOpacity(
-                opacity: (!_isFullscreen || _showUI) ? 1 : 0,
+                opacity: _showPlayPauseIcon ? 1 : 0,
                 duration: const Duration(milliseconds: 300),
-                child: Visibility(
-                  visible: !_isFullscreen || _showUI,
-                  child: Stack(
-                    children: [
-                      // Completion Badge
-                      Positioned(
-                        top: 10,
-                        right: 10,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: currentVideo.isComplete
-                                ? Colors.green
-                                : Colors.orange,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            currentVideo.isComplete
-                                ? "Completed"
-                                : "In Progress",
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      ),
+                child: Icon(_playPauseIcon, size: 80, color: Colors.white70),
+              ),
 
-                      // Custom Controls
-                      Positioned(
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        child: VideoControls(
-                          player: _player,
-                          videoTitle: fileName,
-                          playbackSpeed: _playbackSpeed,
-                          onSpeedChange: (speed) {
-                            _playbackSpeed = speed;
-                            _player.setRate(speed);
-                            setState(() {});
-                          },
-                          onFullscreenToggle: _toggleFullscreen,
-                          onPrevious: _playPrevious,
-                          onNext: _playNext,
-                          onReplay: _replay,
-                          hasPrevious: _currentIndex > 0,
-                          hasNext:
-                              _currentIndex < widget.course.videos.length - 1,
-                        ),
-                      ),
-                    ],
-                  ),
+            // Completion Badge
+            Positioned(
+              top: 10,
+              right: 10,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: currentVideo.isComplete ? Colors.green : Colors.orange,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  currentVideo.isComplete ? "Completed" : "In Progress",
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
                 ),
               ),
-            ],
-          ),
+            ),
+
+            // Custom Controls
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: VideoControls(
+                player: _player,
+                videoTitle: fileName,
+                playbackSpeed: _playbackSpeed,
+                onSpeedChange: (speed) {
+                  _playbackSpeed = speed;
+                  _player.setRate(speed);
+                  setState(() {});
+                },
+                onFullscreenToggle: _toggleFullscreen,
+                onPrevious: _playPrevious,
+                onNext: _playNext,
+                onReplay: _replay,
+                hasPrevious: _currentIndex > 0,
+                hasNext: _currentIndex < widget.course.videos.length - 1,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -371,29 +330,18 @@ class VideoControls extends StatefulWidget {
 class _VideoControlsState extends State<VideoControls> {
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
-  StreamSubscription<Duration>? _positionSub;
-  StreamSubscription<Duration>? _durationSub;
 
   @override
   void initState() {
     super.initState();
 
-    _positionSub = widget.player.streams.position.listen((pos) {
-      if (!mounted) return; // ✅ ensure widget still exists
+    widget.player.streams.position.listen((pos) {
       setState(() => _position = pos);
     });
 
-    _durationSub = widget.player.streams.duration.listen((dur) {
-      if (!mounted) return; // ✅ ensure widget still exists
+    widget.player.streams.duration.listen((dur) {
       setState(() => _duration = dur);
     });
-  }
-
-  @override
-  void dispose() {
-    _positionSub?.cancel(); // ✅ clean up
-    _durationSub?.cancel();
-    super.dispose();
   }
 
   @override
@@ -433,6 +381,8 @@ class _VideoControlsState extends State<VideoControls> {
                     ),
                     activeTrackColor: Colors.green,
                     inactiveTrackColor: Colors.white30,
+                    secondaryActiveTrackColor:
+                        Colors.transparent, // 🔥 disables red bar
                   ),
                   child: Slider(
                     value: _position.inMilliseconds
@@ -466,7 +416,7 @@ class _VideoControlsState extends State<VideoControls> {
                   } else {
                     widget.player.play();
                   }
-                  if (mounted) setState(() {});
+                  setState(() {});
                 },
               ),
               IconButton(
@@ -487,7 +437,7 @@ class _VideoControlsState extends State<VideoControls> {
                 style: const TextStyle(color: Colors.white),
                 items: [0.5, 1.0, 1.5, 2.0]
                     .map(
-                      (e) => DropdownMenuItem(value: e, child: Text('${e}x')),
+                      (e) => DropdownMenuItem(value: e, child: Text("${e}x")),
                     )
                     .toList(),
                 onChanged: (val) {

@@ -45,7 +45,10 @@ class CourseListScreen extends StatelessWidget {
               final parentDir = Directory(parentFolder);
               if (!await parentDir.exists()) return;
 
-              final subDirs = parentDir.listSync().whereType<Directory>().toList();
+              final subDirs = parentDir
+                  .listSync()
+                  .whereType<Directory>()
+                  .toList();
 
               for (final subDir in subDirs) {
                 final videoFiles = await fetchAllVideos(subDir.path);
@@ -56,7 +59,9 @@ class CourseListScreen extends StatelessWidget {
                     .toList();
 
                 // Course thumbnail from first video
-                final firstThumb = await getVideoThumbnail(videoModels.first.path);
+                final firstThumb = await getVideoThumbnail(
+                  videoModels.first.path,
+                );
 
                 final course = CourseModel(
                   id: uuid.v4(),
@@ -87,25 +92,25 @@ class CourseListScreen extends StatelessWidget {
         padding: const EdgeInsets.all(16.0),
         child: provider.courses.isEmpty
             ? const Center(
-          child: Text(
-            "No courses yet.\nClick 'Add Parent Folder' to begin.",
-            style: TextStyle(fontSize: 16, color: Colors.grey),
-            textAlign: TextAlign.center,
-          ),
-        )
+                child: Text(
+                  "No courses yet.\nClick 'Add Parent Folder' to begin.",
+                  style: TextStyle(fontSize: 16, color: Colors.grey),
+                  textAlign: TextAlign.center,
+                ),
+              )
             : GridView.builder(
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3, // 3 cards per row (desktop style)
-            mainAxisSpacing: 16,
-            crossAxisSpacing: 16,
-            childAspectRatio: 1.2,
-          ),
-          itemCount: provider.courses.length,
-          itemBuilder: (context, index) {
-            final course = provider.courses[index];
-            return _CourseCard(course: course);
-          },
-        ),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3, // 3 cards per row (desktop style)
+                  mainAxisSpacing: 16,
+                  crossAxisSpacing: 16,
+                  childAspectRatio: 1.2,
+                ),
+                itemCount: provider.courses.length,
+                itemBuilder: (context, index) {
+                  final course = provider.courses[index];
+                  return _CourseCard(course: course);
+                },
+              ),
       ),
     );
   }
@@ -129,9 +134,7 @@ class _CourseCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         onTap: () => Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (_) => VideoListScreen(course: course),
-          ),
+          MaterialPageRoute(builder: (_) => VideoListScreen(course: course)),
         ),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
@@ -140,9 +143,15 @@ class _CourseCard extends StatelessWidget {
             color: Theme.of(context).cardColor,
             boxShadow: [
               BoxShadow(
-                  color: Colors.black26, offset: const Offset(4, 4), blurRadius: 8),
+                color: Colors.black26,
+                offset: const Offset(4, 4),
+                blurRadius: 8,
+              ),
               BoxShadow(
-                  color: Colors.white24, offset: const Offset(-4, -4), blurRadius: 8),
+                color: Colors.white24,
+                offset: const Offset(-4, -4),
+                blurRadius: 8,
+              ),
             ],
           ),
           child: Stack(
@@ -158,13 +167,18 @@ class _CourseCard extends StatelessWidget {
                           return Container(
                             color: Colors.grey.shade200,
                             child: const Center(
-                              child: Icon(Icons.video_library,
-                                  size: 50, color: Colors.grey),
+                              child: Icon(
+                                Icons.video_library,
+                                size: 50,
+                                color: Colors.grey,
+                              ),
                             ),
                           );
                         }
                         return ClipRRect(
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                          borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(16),
+                          ),
                           child: Image.file(
                             File(thumb),
                             width: double.infinity,
@@ -184,7 +198,9 @@ class _CourseCard extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 16),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
                         ),
                         const SizedBox(height: 6),
                         Text(
@@ -202,7 +218,10 @@ class _CourseCard extends StatelessWidget {
                 bottom: 12,
                 right: 12,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.greenAccent.shade700,
                     borderRadius: BorderRadius.circular(12),
