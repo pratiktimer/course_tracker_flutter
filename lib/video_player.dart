@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart'
     show Video, VideoController;
+import 'package:path/path.dart' as p;
 
 import 'course_provider.dart';
 import 'models.dart';
@@ -26,8 +28,8 @@ class VideoPlayerScreen extends StatefulWidget {
 
 class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     with SingleTickerProviderStateMixin {
-  late Player _player;
-  late VideoController _controller;
+  late final Player _player;
+  late final VideoController _controller;
   late int _currentIndex;
 
   bool _isFullscreen = false;
@@ -40,34 +42,43 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   bool _showPlayPauseIcon = false;
   IconData _playPauseIcon = Icons.play_arrow;
 
-  late AnimationController _animController;
-  late Animation<double> _fadeAnim;
-  late Animation<Offset> _slideAnim;
+  late final AnimationController _animController;
+  late final Animation<double> _fadeAnim;
+  late final Animation<Offset> _slideAnim;
+
+  late final ValueNotifier<Duration> _positionNotifier;
+  late final ValueNotifier<Duration> _durationNotifier;
+
+  // Auto-hide controls
+  bool _showControls = true;
+  Timer? _hideTimer;
 
   @override
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
+
+    _player = Player();
+    _controller = VideoController(_player);
+
+    _positionNotifier = ValueNotifier(Duration.zero);
+    _durationNotifier = ValueNotifier(Duration.zero);
+
     _initPlayer();
 
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 500),
     );
-
     _fadeAnim = Tween<double>(begin: 1.0, end: 0.0).animate(_animController);
     _slideAnim = Tween<Offset>(
       begin: const Offset(0, 0),
       end: const Offset(0, -0.5),
     ).animate(_animController);
-  }
 
-  void _initPlayer() {
-    _player = Player();
-    _controller = VideoController(_player);
-
-    _openVideo(widget.course.videos[_currentIndex].path);
-
+    // Listen to player streams
+    _player.streams.position.listen((pos) => _positionNotifier.value = pos);
+    _player.streams.duration.listen((dur) => _durationNotifier.value = dur);
     _player.streams.completed.listen((completed) {
       if (completed && !_completedOnce) {
         _completedOnce = true;
@@ -78,6 +89,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
         }
       }
     });
+
+    _startHideTimer(); // start auto-hide timer
+  }
+
+  void _initPlayer() {
+    _openVideo(widget.course.videos[_currentIndex].path);
   }
 
   void _openVideo(String path) {
@@ -87,19 +104,17 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   void _playPrevious() {
     if (_currentIndex > 0) {
-      setState(() {
-        _currentIndex--;
-        _openVideo(widget.course.videos[_currentIndex].path);
-      });
+      _currentIndex--;
+      _openVideo(widget.course.videos[_currentIndex].path);
+      setState(() {});
     }
   }
 
   void _playNext() {
     if (_currentIndex < widget.course.videos.length - 1) {
-      setState(() {
-        _currentIndex++;
-        _openVideo(widget.course.videos[_currentIndex].path);
-      });
+      _currentIndex++;
+      _openVideo(widget.course.videos[_currentIndex].path);
+      setState(() {});
     }
   }
 
@@ -109,7 +124,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   }
 
   void _toggleFullscreen() {
-    setState(() => _isFullscreen = !_isFullscreen);
+    _isFullscreen = !_isFullscreen;
     if (_isFullscreen) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
       SystemChrome.setPreferredOrientations([
@@ -120,39 +135,45 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     }
+    setState(() {});
   }
 
   void _showIcon(bool isForward) {
     if (isForward) {
-      setState(() {
-        _showForwardIcon = true;
-      });
+      _showForwardIcon = true;
     } else {
-      setState(() {
-        _showRewindIcon = true;
-      });
+      _showRewindIcon = true;
     }
-
     _animController.reset();
     _animController.forward().then((_) {
-      setState(() {
-        _showForwardIcon = false;
-        _showRewindIcon = false;
-      });
+      _showForwardIcon = false;
+      _showRewindIcon = false;
     });
+    setState(() {});
   }
 
   void _showPlayPause() {
-    setState(() {
-      _showPlayPauseIcon = true;
-      _playPauseIcon = _player.state.playing ? Icons.pause : Icons.play_arrow;
-    });
-
+    _showPlayPauseIcon = true;
+    _playPauseIcon = _player.state.playing ? Icons.pause : Icons.play_arrow;
+    setState(() {});
     Future.delayed(const Duration(milliseconds: 500), () {
       if (mounted) {
-        setState(() {
-          _showPlayPauseIcon = false;
-        });
+        _showPlayPauseIcon = false;
+        setState(() {});
+      }
+    });
+  }
+
+  void _toggleControls() {
+    setState(() => _showControls = !_showControls);
+    if (_showControls) _startHideTimer();
+  }
+
+  void _startHideTimer() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted && _player.state.playing && _isFullscreen) {
+        setState(() => _showControls = false);
       }
     });
   }
@@ -161,61 +182,54 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   void dispose() {
     _player.dispose();
     _animController.dispose();
+    _positionNotifier.dispose();
+    _durationNotifier.dispose();
+    _hideTimer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final currentVideo = widget.course.videos[_currentIndex];
-    final fileName = currentVideo.path.split(Platform.pathSeparator).last;
+    final fileName = p.basename(currentVideo.path);
 
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: _isFullscreen ? null : AppBar(title: Text(fileName)),
-      body: Center(
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          _toggleControls();
+          if (_player.state.playing) {
+            _player.pause();
+          } else {
+            _player.play();
+          }
+          _showPlayPause();
+        },
+        onDoubleTapDown: (details) {
+          final width = MediaQuery.of(context).size.width;
+          final dx = details.localPosition.dx;
+          if (dx < width / 2) {
+            final newPos = _player.state.position - const Duration(seconds: 10);
+            _player.seek(newPos >= Duration.zero ? newPos : Duration.zero);
+            _showIcon(false);
+          } else {
+            final newPos = _player.state.position + const Duration(seconds: 10);
+            _player.seek(
+              newPos <= _player.state.duration
+                  ? newPos
+                  : _player.state.duration,
+            );
+            _showIcon(true);
+          }
+        },
         child: Stack(
           alignment: Alignment.center,
           children: [
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () {
-                if (_player.state.playing) {
-                  _player.pause();
-                } else {
-                  _player.play();
-                }
-                _showPlayPause();
-              },
-              onDoubleTapDown: (details) {
-                final width = MediaQuery.of(context).size.width;
-                final dx = details.localPosition.dx;
+            Video(controller: _controller, fit: BoxFit.contain, controls: null),
 
-                if (dx < width / 2) {
-                  final newPos =
-                      _player.state.position - const Duration(seconds: 10);
-                  _player.seek(
-                    newPos >= Duration.zero ? newPos : Duration.zero,
-                  );
-                  _showIcon(false);
-                } else {
-                  final newPos =
-                      _player.state.position + const Duration(seconds: 10);
-                  _player.seek(
-                    newPos <= _player.state.duration
-                        ? newPos
-                        : _player.state.duration,
-                  );
-                  _showIcon(true);
-                }
-              },
-              child: Video(
-                controller: _controller,
-                fit: BoxFit.cover,
-                controls: null,
-              ),
-            ),
-
-            // Animated Rewind
+            // Animated icons
             if (_showRewindIcon)
               SlideTransition(
                 position: _slideAnim,
@@ -228,8 +242,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                   ),
                 ),
               ),
-
-            // Animated Forward
             if (_showForwardIcon)
               SlideTransition(
                 position: _slideAnim,
@@ -242,8 +254,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                   ),
                 ),
               ),
-
-            // Animated Play/Pause
             if (_showPlayPauseIcon)
               AnimatedOpacity(
                 opacity: _showPlayPauseIcon ? 1 : 0,
@@ -251,7 +261,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 child: Icon(_playPauseIcon, size: 80, color: Colors.white70),
               ),
 
-            // Completion Badge
+            // Completion badge
             Positioned(
               top: 10,
               right: 10,
@@ -268,28 +278,30 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               ),
             ),
 
-            // Custom Controls
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: VideoControls(
-                player: _player,
-                videoTitle: fileName,
-                playbackSpeed: _playbackSpeed,
-                onSpeedChange: (speed) {
-                  _playbackSpeed = speed;
-                  _player.setRate(speed);
-                  setState(() {});
-                },
-                onFullscreenToggle: _toggleFullscreen,
-                onPrevious: _playPrevious,
-                onNext: _playNext,
-                onReplay: _replay,
-                hasPrevious: _currentIndex > 0,
-                hasNext: _currentIndex < widget.course.videos.length - 1,
+            // Auto-hide controls
+            if (_showControls)
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: VideoControls(
+                  player: _player,
+                  videoTitle: fileName,
+                  playbackSpeed: _playbackSpeed,
+                  positionNotifier: _positionNotifier,
+                  durationNotifier: _durationNotifier,
+                  onSpeedChange: (speed) {
+                    _playbackSpeed = speed;
+                    _player.setRate(speed);
+                  },
+                  onFullscreenToggle: _toggleFullscreen,
+                  onPrevious: _playPrevious,
+                  onNext: _playNext,
+                  onReplay: _replay,
+                  hasPrevious: _currentIndex > 0,
+                  hasNext: _currentIndex < widget.course.videos.length - 1,
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -297,7 +309,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   }
 }
 
-class VideoControls extends StatefulWidget {
+class VideoControls extends StatelessWidget {
   final Player player;
   final String videoTitle;
   final double playbackSpeed;
@@ -308,6 +320,9 @@ class VideoControls extends StatefulWidget {
   final VoidCallback onReplay;
   final bool hasPrevious;
   final bool hasNext;
+
+  final ValueNotifier<Duration> positionNotifier;
+  final ValueNotifier<Duration> durationNotifier;
 
   const VideoControls({
     required this.player,
@@ -320,29 +335,10 @@ class VideoControls extends StatefulWidget {
     required this.onReplay,
     required this.hasPrevious,
     required this.hasNext,
+    required this.positionNotifier,
+    required this.durationNotifier,
     super.key,
   });
-
-  @override
-  State<VideoControls> createState() => _VideoControlsState();
-}
-
-class _VideoControlsState extends State<VideoControls> {
-  Duration _position = Duration.zero;
-  Duration _duration = Duration.zero;
-
-  @override
-  void initState() {
-    super.initState();
-
-    widget.player.streams.position.listen((pos) {
-      setState(() => _position = pos);
-    });
-
-    widget.player.streams.duration.listen((dur) {
-      setState(() => _duration = dur);
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -355,7 +351,7 @@ class _VideoControlsState extends State<VideoControls> {
           Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              widget.videoTitle,
+              videoTitle,
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
@@ -363,76 +359,75 @@ class _VideoControlsState extends State<VideoControls> {
             ),
           ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              Text(
-                _formatDuration(_position),
-                style: const TextStyle(color: Colors.white70),
-              ),
-              Expanded(
-                child: SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    trackHeight: 3,
-                    thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 6,
-                    ),
-                    overlayShape: const RoundSliderOverlayShape(
-                      overlayRadius: 12,
-                    ),
-                    activeTrackColor: Colors.green,
-                    inactiveTrackColor: Colors.white30,
-                    secondaryActiveTrackColor:
-                        Colors.transparent, // 🔥 disables red bar
+          ValueListenableBuilder<Duration>(
+            valueListenable: positionNotifier,
+            builder: (context, position, _) {
+              final duration = durationNotifier.value;
+              return Row(
+                children: [
+                  Text(
+                    _formatDuration(position),
+                    style: const TextStyle(color: Colors.white70),
                   ),
-                  child: Slider(
-                    value: _position.inMilliseconds
-                        .clamp(0, _duration.inMilliseconds)
-                        .toDouble(),
-                    min: 0,
-                    max: _duration.inMilliseconds.toDouble(),
-                    onChanged: (value) {
-                      widget.player.seek(Duration(milliseconds: value.toInt()));
-                    },
+                  Expanded(
+                    child: SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 3,
+                        thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 6,
+                        ),
+                        overlayShape: const RoundSliderOverlayShape(
+                          overlayRadius: 12,
+                        ),
+                        activeTrackColor: Colors.green,
+                        inactiveTrackColor: Colors.white30,
+                      ),
+                      child: Slider(
+                        value: position.inMilliseconds
+                            .clamp(0, duration.inMilliseconds)
+                            .toDouble(),
+                        min: 0,
+                        max: duration.inMilliseconds.toDouble(),
+                        onChanged: (val) {
+                          player.seek(Duration(milliseconds: val.toInt()));
+                        },
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              Text(
-                _formatDuration(_duration),
-                style: const TextStyle(color: Colors.white70),
-              ),
-            ],
+                  Text(
+                    _formatDuration(duration),
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                ],
+              );
+            },
           ),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               IconButton(
                 icon: Icon(
-                  widget.player.state.playing ? Icons.pause : Icons.play_arrow,
+                  player.state.playing ? Icons.pause : Icons.play_arrow,
                   color: Colors.white,
                 ),
                 onPressed: () {
-                  if (widget.player.state.playing) {
-                    widget.player.pause();
-                  } else {
-                    widget.player.play();
-                  }
-                  setState(() {});
+                  player.state.playing ? player.pause() : player.play();
                 },
               ),
               IconButton(
                 icon: const Icon(Icons.replay, color: Colors.white),
-                onPressed: widget.onReplay,
+                onPressed: onReplay,
               ),
               IconButton(
                 icon: const Icon(Icons.skip_previous, color: Colors.white),
-                onPressed: widget.hasPrevious ? widget.onPrevious : null,
+                onPressed: hasPrevious ? onPrevious : null,
               ),
               IconButton(
                 icon: const Icon(Icons.skip_next, color: Colors.white),
-                onPressed: widget.hasNext ? widget.onNext : null,
+                onPressed: hasNext ? onNext : null,
               ),
               DropdownButton<double>(
-                value: widget.playbackSpeed,
+                value: playbackSpeed,
                 dropdownColor: Colors.black87,
                 style: const TextStyle(color: Colors.white),
                 items: [0.5, 1.0, 1.5, 2.0]
@@ -441,12 +436,12 @@ class _VideoControlsState extends State<VideoControls> {
                     )
                     .toList(),
                 onChanged: (val) {
-                  if (val != null) widget.onSpeedChange(val);
+                  if (val != null) onSpeedChange(val);
                 },
               ),
               IconButton(
                 icon: const Icon(Icons.fullscreen, color: Colors.white),
-                onPressed: widget.onFullscreenToggle,
+                onPressed: onFullscreenToggle,
               ),
             ],
           ),
