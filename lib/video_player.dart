@@ -68,7 +68,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
     _animController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 400),
     );
     _fadeAnim = Tween<double>(begin: 1.0, end: 0.0).animate(_animController);
     _slideAnim = Tween<Offset>(
@@ -76,9 +76,21 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       end: const Offset(0, -0.5),
     ).animate(_animController);
 
-    // Listen to player streams
+    // Sync position & duration
     _player.streams.position.listen((pos) => _positionNotifier.value = pos);
     _player.streams.duration.listen((dur) => _durationNotifier.value = dur);
+
+    // Sync UI with play/pause state and reset hide timer when needed
+    _player.streams.playing.listen((isPlaying) {
+      setState(() {});
+      // If the player just started playing and controls are visible in fullscreen,
+      // restart the hide timer so controls still auto-hide.
+      if (isPlaying && _showControls && _isFullscreen) {
+        _startHideTimer();
+      }
+    });
+
+    // Handle video completion
     _player.streams.completed.listen((completed) {
       if (completed && !_completedOnce) {
         _completedOnce = true;
@@ -90,7 +102,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       }
     });
 
-    _startHideTimer(); // start auto-hide timer
+    _startHideTimer(); // Start auto-hide timer initially
   }
 
   void _initPlayer() {
@@ -138,7 +150,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     setState(() {});
   }
 
-  void _showIcon(bool isForward) {
+  void _showSeekIcon(bool isForward) {
     if (isForward) {
       _showForwardIcon = true;
     } else {
@@ -148,6 +160,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     _animController.forward().then((_) {
       _showForwardIcon = false;
       _showRewindIcon = false;
+      setState(() {});
     });
     setState(() {});
   }
@@ -156,7 +169,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     _showPlayPauseIcon = true;
     _playPauseIcon = _player.state.playing ? Icons.pause : Icons.play_arrow;
     setState(() {});
-    Future.delayed(const Duration(milliseconds: 500), () {
+    Future.delayed(const Duration(milliseconds: 600), () {
       if (mounted) {
         _showPlayPauseIcon = false;
         setState(() {});
@@ -164,18 +177,50 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     });
   }
 
-  void _toggleControls() {
-    setState(() => _showControls = !_showControls);
-    if (_showControls) _startHideTimer();
-  }
-
+  /// Starts (or restarts) the hide timer. When timer fires, controls will hide.
   void _startHideTimer() {
     _hideTimer?.cancel();
+    // only auto-hide controls in fullscreen while playing (keeps previous behavior)
     _hideTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted && _player.state.playing && _isFullscreen) {
+      if (!mounted) return;
+      if (_player.state.playing && _isFullscreen) {
         setState(() => _showControls = false);
       }
     });
+  }
+
+  void _toggleControls() {
+    setState(() => _showControls = !_showControls);
+    if (_showControls)
+      _startHideTimer();
+    else {
+      _hideTimer?.cancel();
+    }
+  }
+
+  /// Called on single tap on the video area.
+  /// - If controls are visible: toggle play/pause and restart hide timer.
+  /// - If controls are hidden: show controls and start hide timer.
+  Future<void> _handleTap() async {
+    if (_showControls) {
+      // user intended to toggle playback (common UX)
+      await _togglePlayPause();
+      // keep controls visible briefly and restart hide timer
+      if (_showControls) _startHideTimer();
+    } else {
+      // show controls (don't toggle playback)
+      setState(() => _showControls = true);
+      _startHideTimer();
+    }
+  }
+
+  Future<void> _togglePlayPause() async {
+    if (_player.state.playing) {
+      await _player.pause();
+    } else {
+      await _player.play();
+    }
+    _showPlayPause();
   }
 
   @override
@@ -198,22 +243,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       appBar: _isFullscreen ? null : AppBar(title: Text(fileName)),
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () {
-          _toggleControls();
-          if (_player.state.playing) {
-            _player.pause();
-          } else {
-            _player.play();
-          }
-          _showPlayPause();
-        },
+        onTap: _handleTap,
         onDoubleTapDown: (details) {
           final width = MediaQuery.of(context).size.width;
           final dx = details.localPosition.dx;
           if (dx < width / 2) {
             final newPos = _player.state.position - const Duration(seconds: 10);
             _player.seek(newPos >= Duration.zero ? newPos : Duration.zero);
-            _showIcon(false);
+            _showSeekIcon(false);
           } else {
             final newPos = _player.state.position + const Duration(seconds: 10);
             _player.seek(
@@ -221,7 +258,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                   ? newPos
                   : _player.state.duration,
             );
-            _showIcon(true);
+            _showSeekIcon(true);
           }
         },
         child: Stack(
@@ -229,7 +266,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
           children: [
             Video(controller: _controller, fit: BoxFit.contain, controls: null),
 
-            // Animated icons
+            // Rewind / Forward Icons
             if (_showRewindIcon)
               SlideTransition(
                 position: _slideAnim,
@@ -254,6 +291,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                   ),
                 ),
               ),
+
+            // Play / Pause Overlay
             if (_showPlayPauseIcon)
               AnimatedOpacity(
                 opacity: _showPlayPauseIcon ? 1 : 0,
@@ -278,7 +317,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               ),
             ),
 
-            // Auto-hide controls
+            // Custom Controls
             if (_showControls)
               Positioned(
                 bottom: 0,
@@ -363,6 +402,12 @@ class VideoControls extends StatelessWidget {
             valueListenable: positionNotifier,
             builder: (context, position, _) {
               final duration = durationNotifier.value;
+              final maxMs = duration.inMilliseconds > 0
+                  ? duration.inMilliseconds.toDouble()
+                  : 1.0;
+              final currentMs = position.inMilliseconds
+                  .clamp(0, duration.inMilliseconds)
+                  .toDouble();
               return Row(
                 children: [
                   Text(
@@ -383,11 +428,9 @@ class VideoControls extends StatelessWidget {
                         inactiveTrackColor: Colors.white30,
                       ),
                       child: Slider(
-                        value: position.inMilliseconds
-                            .clamp(0, duration.inMilliseconds)
-                            .toDouble(),
+                        value: currentMs,
                         min: 0,
-                        max: duration.inMilliseconds.toDouble(),
+                        max: maxMs,
                         onChanged: (val) {
                           player.seek(Duration(milliseconds: val.toInt()));
                         },
@@ -432,7 +475,7 @@ class VideoControls extends StatelessWidget {
                 style: const TextStyle(color: Colors.white),
                 items: [0.5, 1.0, 1.5, 2.0]
                     .map(
-                      (e) => DropdownMenuItem(value: e, child: Text("${e}x")),
+                      (e) => DropdownMenuItem(value: e, child: Text('${e}x')),
                     )
                     .toList(),
                 onChanged: (val) {
@@ -452,6 +495,8 @@ class VideoControls extends StatelessWidget {
 
   String _formatDuration(Duration d) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
-    return "${twoDigits(d.inMinutes)}:${twoDigits(d.inSeconds % 60)}";
+    final minutes = twoDigits(d.inMinutes.remainder(60));
+    final seconds = twoDigits(d.inSeconds.remainder(60));
+    return "$minutes:$seconds";
   }
 }

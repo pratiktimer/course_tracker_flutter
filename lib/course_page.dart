@@ -34,58 +34,93 @@ class CourseListScreen extends StatelessWidget {
       floatingActionButton: Column(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          FloatingActionButton.extended(
-            heroTag: 'addCoursesFromParent',
-            icon: const Icon(Icons.folder_open),
-            label: const Text("Add Parent Folder"),
-            onPressed: () async {
-              final parentFolder = await pickFolder();
-              if (parentFolder == null) return;
+          //   FloatingActionButton.extended(
+          //     heroTag: 'addCoursesFromParent',
+          //     icon: const Icon(Icons.folder_open),
+          //     label: const Text("Add Parent Folder"),
+          //     onPressed: () async {
+          //       final parentFolder = await pickFolder();
+          //       if (parentFolder == null) return;
 
-              final parentDir = Directory(parentFolder);
-              if (!await parentDir.exists()) return;
+          //       final parentDir = Directory(parentFolder);
+          //       if (!await parentDir.exists()) return;
 
-              final subDirs = parentDir
-                  .listSync()
-                  .whereType<Directory>()
-                  .toList();
+          //       final subDirs = parentDir
+          //           .listSync()
+          //           .whereType<Directory>()
+          //           .toList();
 
-              for (final subDir in subDirs) {
-                final videoFiles = await fetchAllVideos(subDir.path);
-                if (videoFiles.isEmpty) continue;
+          //       for (final subDir in subDirs) {
+          //         final videoFiles = await fetchAllVideos(subDir.path);
+          //         if (videoFiles.isEmpty) continue;
 
-                final videoModels = videoFiles
-                    .map((v) => VideoModel(id: uuid.v4(), path: v.path))
-                    .toList();
+          //         final videoModels = videoFiles
+          //             .map((v) => VideoModel(id: uuid.v4(), path: v.path))
+          //             .toList();
 
-                // Course thumbnail from first video
-                final firstThumb = await getVideoThumbnail(
-                  videoModels.first.path,
-                );
+          //         // Course thumbnail from first video
+          //         final firstThumb = await getVideoThumbnail(
+          //           videoModels.first.path,
+          //         );
 
-                final course = CourseModel(
-                  id: uuid.v4(),
-                  name: subDir.path.split(Platform.pathSeparator).last,
-                  videos: videoModels,
-                  thumbnailPath: firstThumb,
-                );
-                course.thumbnailState.value = firstThumb;
+          //         final course = CourseModel(
+          //           id: uuid.v4(),
+          //           name: subDir.path.split(Platform.pathSeparator).last,
+          //           videos: videoModels,
+          //           thumbnailPath: firstThumb,
+          //         );
+          //         course.thumbnailState.value = firstThumb;
 
-                await provider.addCourse(course);
-              }
-            },
-          ),
+          //         await provider.addCourse(course);
+          //       }
+          //     },
+          //   ),
+          //   const SizedBox(height: 12),
+          // FloatingActionButton.extended(
+          //   heroTag: 'addCoursesFromChild',
+          //   icon: const Icon(Icons.folder_open),
+          //   label: const Text("Add Child Folder"),
+          //   onPressed: () async {
+          //     final parentFolder = await pickFolder();
+          //     if (parentFolder == null) return;
 
-          const SizedBox(height: 12),
-          FloatingActionButton.extended(
-            heroTag: 'resetApp',
-            backgroundColor: Colors.red,
-            icon: const Icon(Icons.refresh),
-            label: const Text("Reset"),
-            onPressed: () async {
-              await provider.clearDatabase();
-            },
-          ),
+          //     final parentDir = Directory(parentFolder);
+          //     if (!await parentDir.exists()) return;
+
+          //     final videoFiles = await fetchAllVideos(parentDir.path);
+          //     if (videoFiles.isEmpty) return;
+
+          //     final videoModels = videoFiles
+          //         .map((v) => VideoModel(id: uuid.v4(), path: v.path))
+          //         .toList();
+
+          //     // Course thumbnail from first video
+          //     final firstThumb = await getVideoThumbnail(
+          //       videoModels.first.path,
+          //     );
+
+          //     final course = CourseModel(
+          //       id: uuid.v4(),
+          //       name: parentDir.path.split(Platform.pathSeparator).last,
+          //       videos: videoModels,
+          //       thumbnailPath: firstThumb,
+          //     );
+          //     course.thumbnailState.value = firstThumb;
+
+          //     await provider.addCourse(course);
+          //   },
+          // ),
+
+          //   const SizedBox(height: 12),
+          //   FloatingActionButton.extended(
+          //     heroTag: 'resetApp',
+          //     backgroundColor: Colors.red,
+          //     icon: const Icon(Icons.refresh),
+          //     label: const Text("Reset"),
+          //     onPressed: () async {
+          //       await provider.clearDatabase();
+          //     },
+          //   ),
         ],
       ),
       body: Padding(
@@ -188,6 +223,7 @@ class _CourseCard extends StatelessWidget {
                       },
                     ),
                   ),
+
                   Padding(
                     padding: const EdgeInsets.all(12),
                     child: Column(
